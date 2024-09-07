@@ -1,70 +1,58 @@
-"use client";
-import { Button, Callout, Spinner, TextField } from "@radix-ui/themes";
-import dynamic from "next/dynamic";
-import React, { useState } from "react";
-import "easymde/dist/easymde.min.css";
-import { useForm, Controller } from "react-hook-form";
-import axios from "axios";
-import { useRouter } from "next/navigation";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { issueSchema } from "@/app/validationSchema";
-import { z } from "zod";
-import ErrorMessage from "@/app/components/ErrorMessage";
+import Pagination from '@/app/components/Pagination';
+import prisma from '@/prisma/client';
+import { Status } from '@prisma/client';
+import IssueActions from './IssueActions';
+import IssueTable, { IssueQuery, columnNames } from './IssueTable';
+import { Flex } from '@radix-ui/themes';
+import { Metadata } from 'next';
 
-const SimpleMDE = dynamic(() => import("react-simplemde-editor"), {
-  ssr: false,
-});
+interface Props {
+  searchParams: IssueQuery
+}
 
-type IssueForm = z.infer<typeof issueSchema>;
+const IssuesPage = async ({ searchParams }: Props) => {
+  const statuses = Object.values(Status);
+  const status = statuses.includes(searchParams.status)
+    ? searchParams.status
+    : undefined;
 
-const NewIssuePage = () => {
-  const router = useRouter();
-  const {
-    register,
-    control,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<IssueForm>({
-    resolver: zodResolver(issueSchema),
+  const where = { status };
+
+  const orderBy = columnNames
+    .includes(searchParams.orderBy)
+    ? { [searchParams.orderBy]: 'asc' }
+    : undefined;
+
+  const page = parseInt(searchParams.page) || 1;
+  const pageSize = 10;
+
+  const issues = await prisma.issue.findMany({
+    where,
+    orderBy,
+    skip: (page - 1) * pageSize,
+    take: pageSize,
   });
-  const [error, setError] = useState("");
-  const [isSubmitting, setSubmitting] = useState(false);
 
-  const onSubmit = handleSubmit(async (data) => {
-    try {
-      setSubmitting(true);
-      await axios.post("api/issues", data);
-      router.push("/issues/list");
-    } catch (error) {
-      setSubmitting(false);
-      setError("An unexpected error occured.");
-    }
-  });
+  const issueCount = await prisma.issue.count({ where });
 
   return (
-    <div className="max-w-xl">
-      {error && (
-        <Callout.Root className="mb-5" color="red">
-          <Callout.Text>{error}</Callout.Text>
-        </Callout.Root>
-      )}
-      <form onSubmit={onSubmit} className="max-w-xl space-y-3">
-        <TextField.Root placeholder="Title" {...register("title")} />
-        <ErrorMessage>{errors.title?.message}</ErrorMessage>
-        <Controller
-          name="description"
-          control={control}
-          render={({ field }) => (
-            <SimpleMDE placeholder="Description" {...field} />
-          )}
-        />
-        <ErrorMessage>{errors.description?.message}</ErrorMessage>
-        <Button disabled={isSubmitting}>
-          Submit New Issue {isSubmitting && <Spinner />}{" "}
-        </Button>
-      </form>
-    </div>
+    <Flex direction="column" gap="3">
+      <IssueActions />
+      <IssueTable searchParams={searchParams} issues={issues} />
+      <Pagination
+        pageSize={pageSize}
+        currentPage={page}
+        itemCount={issueCount}
+      />
+    </Flex>
   );
 };
 
-export default NewIssuePage;
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Issue Tracker - Issue List',
+  description: 'View all project issues'
+};
+
+export default IssuesPage;
